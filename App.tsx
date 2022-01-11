@@ -243,99 +243,67 @@ export const BookWhatsit = ({ path }: { path: string }) => {
     const [lastCompleted, setLastCompleted] = React.useState(
         null as null | number,
     );
+    const [chapters, setChapters] = React.useState(
+        null as null | Array<Chapter>,
+    );
     const [progress, error] = useTTSProgress((evt) => {
         AsyncStorage.setItem(
-            'last-completed',
+            'last-completed:' + path,
             map.current.mapping[evt.utteranceId].toString(),
         );
         setLastCompleted(map.current.mapping[evt.utteranceId]);
     });
+    const [started, setStarted] = React.useState(false);
     // const [data, setData] = React.useState(null as null | string);
 
     React.useEffect(() => {
-        readFile(path, 'base64').then((blob) => {
-            // console.log('BLob', blob.slice(0, 100));
-            JSZip.loadAsync(blob, { base64: true })
-                .then(async (file) => {
-                    const found = Object.keys(file.files).find(
-                        (x) => x.toLowerCase() === 'meta-inf/container.xml',
-                    );
-                    if (!found) {
-                        console.log(Object.keys(file.files));
-                        return;
-                    }
-                    const chapters = await getChapters(file, found);
-
-                    for (let chapter of chapters) {
-                        await populateChapter(file, chapter);
-                    }
-
-                    // console.log(
-                    //     chapters.reduce(
-                    //         (v, c) =>
-                    //             v + c.blobs.reduce((v, t) => v + t.length, 0),
-                    //         0,
-                    //     ),
-                    //     'characters to speak',
-                    //     chapters.map((c) => c.blobs.length),
-                    //     'chunks',
-                    //     chapters.length,
-                    //     'chapters',
-                    //     chapters.reduce(
-                    //         (m, c) =>
-                    //             Math.max(
-                    //                 c.blobs.reduce(
-                    //                     (m, b) => Math.max(m, b.length),
-                    //                     0,
-                    //                 ),
-                    //             ),
-                    //         0,
-                    //     ),
-                    // );
-
-                    const base =
-                        ExternalStorageDirectoryPath + '/Audiobooks/WIP';
-                    if (!(await exists(base))) {
-                        await mkdir(base);
-                    }
-
-                    const data: ChapterData = (map.current = {
-                        blobs: chapters.reduce((t, c) => t + c.blobs.length, 0),
-                        idx: 0,
-                        mapping: {},
-                        lengths: {},
-                        chapters,
-                    });
-
-                    let last = await AsyncStorage.getItem('last-completed');
-                    let skipTo = last != null ? +last + 1 : 0;
-                    setLastCompleted(skipTo - 1);
-
-                    console.log('going through chapters');
-                    let i = 0;
-                    for (let chapter of chapters) {
-                        for (let blob of chapter.blobs) {
-                            let id = i++;
-                            if (id < skipTo) {
-                                continue;
-                            }
-                            const dest = base + `/${id}.wav`;
-                            data.lengths[id] = blob.length;
-                            const uid = await TTs.speakToFile(blob, dest);
-                            data.mapping[uid] = id;
-                        }
-                    }
-                })
-                .catch((err) => {
-                    console.log('Fail');
-                    console.error(err);
-                });
+        (async () => {
+            let last = await AsyncStorage.getItem('last-completed:' + path);
+            let skipTo = last != null ? +last + 1 : 0;
+            setLastCompleted(skipTo - 1);
+            const chapters = await loadBook(path);
+            setChapters(chapters);
+        })().catch((err) => {
+            console.error(err);
         });
     }, []);
+
+    if (!chapters) {
+        return (
+            <View>
+                <Text>Loading .epub file...</Text>
+            </View>
+        );
+    }
+
+    const totalBlobs = chapters.reduce((t, c) => t + c.blobs.length, 0);
 
     return (
         <View style={{ alignSelf: 'center' }}>
             <Text>Hello</Text>
+            {started ? (
+                <Button
+                    title="Stop"
+                    onPress={() => {
+                        TTs.stop();
+                        setStarted(false);
+                    }}
+                />
+            ) : (
+                <Button
+                    title="Start"
+                    onPress={() => {
+                        setStarted(true);
+                        runTranscription(
+                            chapters!,
+                            map,
+                            lastCompleted + 1,
+                        ).catch((err) => {
+                            console.error(err);
+                        });
+                    }}
+                />
+            )}
             <View
                 style={{
                     height: 10,
@@ -348,9 +316,8 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                     style={{
                         height: 10,
                         width:
-                            map.current && lastCompleted != null
-                                ? 200 *
-                                  ((lastCompleted + 1) / map.current.blobs)
+                            lastCompleted != null
+                                ? 200 * ((lastCompleted + 1) / totalBlobs)
                                 : 0,
                         backgroundColor: '#0f0',
                         alignSelf: 'flex-start',
@@ -384,12 +351,11 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                     }}
                 />
             </View>
-            {lastCompleted != null && map.current ? (
+            {lastCompleted != null ? (
                 <Text>
-                    {(((lastCompleted + 1) / map.current.blobs) * 100).toFixed(
-                        2,
-                    ) + '%   '}
-                    {lastCompleted + 1} of {map.current.blobs}
+                    {(((lastCompleted + 1) / totalBlobs) * 100).toFixed(2) +
+                        '%   '}
+                    {lastCompleted + 1} of {totalBlobs}
                 </Text>
             ) : null}
             {error ? <Text>Error {JSON.stringify(error)}</Text> : null}
@@ -401,9 +367,7 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                 title="Reset"
             />
             <View style={{ height: 16 }} />
-            {map.current ? (
-                <ShowChapters chapters={map.current.chapters} />
-            ) : null}
+            {chapters != null ? <ShowChapters chapters={chapters} /> : null}
         </View>
     );
 };
@@ -413,25 +377,47 @@ export const ShowChapters = ({
 }: {
     chapters: ChapterData['chapters'];
 }) => {
+    const [show, setShow] = React.useState(false);
     const [idx, setIdx] = React.useState(0);
     return (
-        <View style={{ flex: 1 }}>
-            <Button onPress={() => setIdx(Math.max(0, idx - 1))} title="<--" />
-            <Text>{idx}</Text>
+        <View style={show ? { flex: 1 } : null}>
             <Button
-                onPress={() => setIdx(Math.min(idx + 1, chapters.length - 1))}
-                title="-->"
+                onPress={() => setShow(!show)}
+                title={show ? 'Hide text' : 'Show text'}
             />
-
-            <ScrollView style={{ flex: 1 }}>
-                {chapters[idx].blobs.map((blob, i) => (
-                    <View key={i}>
-                        <Text>
-                            {i}. {blob}
-                        </Text>
+            {show ? (
+                <>
+                    <View style={{ height: 16 }} />
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            justifyContent: 'center',
+                        }}
+                    >
+                        <Button
+                            onPress={() => setIdx(Math.max(0, idx - 1))}
+                            title="<--"
+                        />
+                        <Text>{idx}</Text>
+                        <Button
+                            onPress={() =>
+                                setIdx(Math.min(idx + 1, chapters.length - 1))
+                            }
+                            title="-->"
+                        />
                     </View>
-                ))}
-            </ScrollView>
+
+                    <ScrollView style={{ flex: 1 }}>
+                        {chapters[idx].blobs.map((blob, i) => (
+                            <View key={i}>
+                                <Text>
+                                    {i}. {blob}
+                                </Text>
+                            </View>
+                        ))}
+                    </ScrollView>
+                </>
+            ) : null}
         </View>
     );
 };
@@ -461,6 +447,88 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
 });
+
+const loadBook = async (path: string): Promise<Array<Chapter>> => {
+    const blob = await readFile(path, 'base64');
+    const file = await JSZip.loadAsync(blob, { base64: true });
+    const found = Object.keys(file.files).find(
+        (x) => x.toLowerCase() === 'meta-inf/container.xml',
+    );
+    if (!found) {
+        console.log(Object.keys(file.files));
+        return;
+    }
+    const chapters = await getChapters(file, found);
+
+    for (let chapter of chapters) {
+        await populateChapter(file, chapter);
+    }
+
+    return chapters;
+};
+
+async function runTranscription(
+    chapters: Array<Chapter>,
+    map: React.MutableRefObject<ChapterData>,
+    skipTo: number,
+) {
+    // console.log(
+    //     chapters.reduce(
+    //         (v, c) =>
+    //             v + c.blobs.reduce((v, t) => v + t.length, 0),
+    //         0,
+    //     ),
+    //     'characters to speak',
+    //     chapters.map((c) => c.blobs.length),
+    //     'chunks',
+    //     chapters.length,
+    //     'chapters',
+    //     chapters.reduce(
+    //         (m, c) =>
+    //             Math.max(
+    //                 c.blobs.reduce(
+    //                     (m, b) => Math.max(m, b.length),
+    //                     0,
+    //                 ),
+    //             ),
+    //         0,
+    //     ),
+    // );
+    const base = ExternalStorageDirectoryPath + '/Audiobooks/WIP';
+    if (!(await exists(base))) {
+        await mkdir(base);
+    }
+
+    const data: ChapterData = (map.current = {
+        blobs: chapters.reduce((t, c) => t + c.blobs.length, 0),
+        idx: 0,
+        mapping: {},
+        lengths: {},
+        chapters,
+    });
+
+    // let last = await AsyncStorage.getItem(
+    //     'last-completed:' + path
+    // );
+    // let skipTo = last != null ? +last + 1 : 0;
+    // setLastCompleted(skipTo - 1);
+
+    console.log('going through chapters');
+    let i = 0;
+    for (let chapter of chapters) {
+        for (let blob of chapter.blobs) {
+            let id = i++;
+            if (id < skipTo) {
+                continue;
+            }
+            const dest = base + `/${id}.wav`;
+            data.lengths[id] = blob.length;
+            const uid = await TTs.speakToFile(blob, dest);
+            data.mapping[uid] = id;
+        }
+    }
+}
+
 async function populateChapter(file: JSZip, chapter: any) {
     const contents = await file.files[chapter.src].async('string');
     let soup = new jssoup(contents);
@@ -496,8 +564,18 @@ async function populateChapter(file: JSZip, chapter: any) {
                 : toplevel.text;
         });
 }
+type Chapter = {
+    src: string;
+    label: string;
+    playOrder: number;
+    class: string;
+    blobs: string[];
+};
 
-async function getChapters(file: JSZip, found: string) {
+async function getChapters(
+    file: JSZip,
+    found: string,
+): Promise<Array<Chapter>> {
     const manifest = await file.files[found].async('string');
     // console.log(manifest);
     const soup = new jssoup(manifest);
@@ -519,8 +597,9 @@ async function getChapters(file: JSZip, found: string) {
     // console.log(toc);
     const tsoup = new jssoup(toc);
     const points = tsoup.findAll('navPoint');
+
     const chapters = points
-        .map((point) => {
+        .map((point): Chapter => {
             const src = point.find('content').attrs['src'];
             const label = point.find('navLabel').text;
             return {

@@ -1,9 +1,21 @@
 {
   "dependencies": {
+    "epub": "https://github.com/jaredly/epub",
     "expo": "^43.0.0",
-    "react": "^17.0.1",
+    "expo-splash-screen": "~0.13.5",
+    "expo-status-bar": "~1.1.0",
+    "expo-updates": "~0.10.13",
+    "ffmpeg-kit-react-native": "^4.5.1",
+    "jszip": "^3.7.1",
+    "react": "17.0.1",
     "react-dom": "^17.0.1",
     "react-native": "0.64.3",
+    "react-native-fs": "^2.18.0",
+    "react-native-gesture-handler": "~1.10.2",
+    "react-native-reanimated": "~2.2.0",
+    "react-native-safe-area-context": "3.3.2",
+    "react-native-screens": "~3.8.0",
+    "react-native-tts": "../react-native-tts",
     "react-native-web": "~0.17.1"
   },
   "devDependencies": {
@@ -13,11 +25,10 @@
     "typescript": "~4.3.5"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "eject": "expo eject"
+    "start": "react-native start",
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "web": "expo start --web"
   },
   "private": true
 }

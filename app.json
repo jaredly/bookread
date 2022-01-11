@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Read Me a Book",
+    "slug": "readmeabook",
+    "entryPoint": "node_modules/expo/AppEntry.js"
+  },
+  "displayName": "Read Me a Book",
+  "name": "ReadMeABook"
+}

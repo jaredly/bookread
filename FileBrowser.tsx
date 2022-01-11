@@ -17,18 +17,7 @@ export const FileBrowser = ({
 }) => {
     const [dir, setDir] = React.useState(DownloadDirectoryPath);
 
-    const contents = usePromise(
-        () =>
-            // readDir(dir)
-            readdir(dir).then((names) =>
-                names.map((name) => ({
-                    name,
-                    path: dir + '/' + name,
-                    isDirectory: () => name === 'Audiobooks',
-                })),
-            ),
-        [dir],
-    );
+    const contents = usePromise(() => readDir(dir), [dir]);
 
     return (
         <ScrollView

@@ -2,6 +2,8 @@ import React from 'react';
 import { Text, View, ScrollView, TouchableHighlight } from 'react-native';
 import {
     ExternalStorageDirectoryPath,
+    DownloadDirectoryPath,
+    readdir,
     readDir,
     ReadDirItem,
 } from 'react-native-fs';
@@ -13,9 +15,20 @@ export const FileBrowser = ({
     onSelect: (item: ReadDirItem) => void;
     filter: (item: ReadDirItem) => boolean;
 }) => {
-    const [dir, setDir] = React.useState(ExternalStorageDirectoryPath);
+    const [dir, setDir] = React.useState(DownloadDirectoryPath);
 
-    const contents = usePromise(() => readDir(dir), [dir]);
+    const contents = usePromise(
+        () =>
+            // readDir(dir)
+            readdir(dir).then((names) =>
+                names.map((name) => ({
+                    name,
+                    path: dir + '/' + name,
+                    isDirectory: () => name === 'Audiobooks',
+                })),
+            ),
+        [dir],
+    );
 
     return (
         <ScrollView
@@ -50,52 +63,58 @@ export const FileBrowser = ({
                 contents
                     .sort((a, b) => {
                         const d = +b.isDirectory() - +a.isDirectory();
-                        return d === 0 ? (a.name < b.name ? -1 : 1) : d;
+                        return d === 0
+                            ? a.name < b.name
+                                ? -1
+                                : a.name === b.name
+                                ? 0
+                                : 1
+                            : d;
                     })
-                    .map((name, i) =>
-                        filter(name) ? (
-                            <TouchableHighlight
-                                key={i}
-                                onPress={() => {
-                                    if (name.isDirectory()) {
-                                        setDir(name.path);
-                                    } else {
-                                        onSelect(name);
-                                    }
-                                }}
-                            >
-                                <View
-                                    style={{
-                                        marginHorizontal: 16,
-                                        marginVertical: 8,
+                    .map(
+                        (name, i) =>
+                            filter(name) ? (
+                                <TouchableHighlight
+                                    key={i}
+                                    onPress={() => {
+                                        if (name.isDirectory()) {
+                                            setDir(name.path);
+                                        } else {
+                                            onSelect(name);
+                                        }
                                     }}
                                 >
-                                    <Text
-                                        style={
-                                            name.isDirectory()
-                                                ? {
-                                                      fontWeight: 'bold',
-                                                  }
-                                                : {}
-                                        }
+                                    <View
+                                        style={{
+                                            marginHorizontal: 16,
+                                            marginVertical: 8,
+                                        }}
                                     >
-                                        {name.name}
-                                    </Text>
-                                </View>
-                            </TouchableHighlight>
-                        ) : (
-                            <View
-                                key={i}
-                                style={{
-                                    marginHorizontal: 16,
-                                    marginVertical: 8,
-                                }}
-                            >
-                                <Text style={{ fontStyle: 'italic' }}>
-                                    {name.name}
-                                </Text>
-                            </View>
-                        ),
+                                        <Text
+                                            style={
+                                                name.isDirectory()
+                                                    ? {
+                                                          fontWeight: 'bold',
+                                                      }
+                                                    : {}
+                                            }
+                                        >
+                                            {name.name}
+                                        </Text>
+                                    </View>
+                                </TouchableHighlight>
+                            ) : null,
+                        // <View
+                        //     key={i}
+                        //     style={{
+                        //         marginHorizontal: 16,
+                        //         marginVertical: 8,
+                        //     }}
+                        // >
+                        //     <Text style={{ fontStyle: 'italic' }}>
+                        //         {name.name}
+                        //     </Text>
+                        // </View>
                     )
             ) : (
                 <Text style={{ margin: 16 }}>Loading...</Text>

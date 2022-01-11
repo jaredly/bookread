@@ -10,9 +10,55 @@ import {
 import JSZip from 'jszip';
 import jssoup from 'jssoup';
 import AsyncStorage from '@react-native-community/async-storage';
-import { useTTSProgress } from './App';
 
-export const BookWhatsit = ({ path }: { path: string }) => {
+export const basename = (path: string) => {
+    const parts = path.split('/');
+    return parts[parts.length - 1];
+};
+export const dirname = (path: string) => path.split('/').slice(0, -1).join('/');
+
+const statusKey = (path: string, target: string) =>
+    `last-completed:${path}:${target}`;
+
+export const useTTSProgress = (onFinish) => {
+    const [progress, setProgress] = React.useState(null);
+    const [error, setError] = React.useState(null);
+    React.useEffect(() => {
+        const fn = (evt) => {
+            onFinish(evt);
+            // setTick((tick) => tick + 1);
+            setProgress(null);
+        };
+        TTs.addEventListener('tts-finish', fn);
+        const cancel = (err) => setError(err || 'Some cancel');
+        TTs.addEventListener('tts-cancel', cancel);
+        const error = (err) => setError(err || 'Some error');
+        TTs.addEventListener('tts-error', error);
+        const f2 = (evt) =>
+            setProgress((prev) =>
+                prev ? { ...evt, tick: prev.tick + 1 } : { ...evt, tick: 0 },
+            );
+        TTs.addEventListener('tts-progress', f2);
+        return () => {
+            TTs.removeEventListener('tts-finish', fn);
+            TTs.removeEventListener('tts-error', error);
+            TTs.removeEventListener('tts-cancel', cancel);
+            TTs.removeEventListener('tts-progress', f2);
+        };
+    }, []);
+
+    return [progress, error];
+};
+
+export const BookWhatsit = ({
+    path,
+    onBack,
+    target,
+}: {
+    path: string;
+    target: string;
+    onBack: () => void;
+}) => {
     const map = React.useRef(null as null | ChapterData);
     const [lastCompleted, setLastCompleted] = React.useState(
         null as null | number,
@@ -22,7 +68,7 @@ export const BookWhatsit = ({ path }: { path: string }) => {
     );
     const [progress, error] = useTTSProgress((evt) => {
         AsyncStorage.setItem(
-            'last-completed:' + path,
+            statusKey(path, target),
             map.current.mapping[evt.utteranceId].toString(),
         );
         setLastCompleted(map.current.mapping[evt.utteranceId]);
@@ -31,11 +77,14 @@ export const BookWhatsit = ({ path }: { path: string }) => {
     // const [data, setData] = React.useState(null as null | string);
     React.useEffect(() => {
         (async () => {
-            let last = await AsyncStorage.getItem('last-completed:' + path);
-            let skipTo = last != null ? +last + 1 : 0;
-            setLastCompleted(skipTo - 1);
-            const chapters = await loadBook(path);
-            setChapters(chapters);
+            let last = await AsyncStorage.getItem(statusKey(path, target));
+            setLastCompleted(last != null ? +last : -1);
+            try {
+                const chapters = await loadBook(path);
+                setChapters(chapters);
+            } catch (err) {
+                onBack();
+            }
         })().catch((err) => {
             console.error(err);
         });
@@ -53,7 +102,15 @@ export const BookWhatsit = ({ path }: { path: string }) => {
 
     return (
         <View style={{ alignSelf: 'center' }}>
-            <Text>Hello</Text>
+            <Button
+                title="Back"
+                onPress={() => {
+                    onBack();
+                }}
+            />
+            <View style={{ height: 8 }} />
+            <Text>File: {basename(decodeURIComponent(path))}</Text>
+            <View style={{ height: 8 }} />
             {started ? (
                 <Button
                     title="Stop"
@@ -67,7 +124,13 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                     title="Start"
                     onPress={() => {
                         setStarted(true);
+                        // TODO: use 'target' here actually
+                        const base =
+                            ExternalStorageDirectoryPath +
+                            '/Audiobooks/' +
+                            basename(path).replace(/\.epub$/, '');
                         runTranscription(
+                            base,
                             chapters!,
                             map,
                             lastCompleted + 1,
@@ -77,7 +140,8 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                     }}
                 />
             )}
-            <View
+            <View style={{ height: 8 }} />
+            {/* <View
                 style={{
                     height: 10,
                     width: 200,
@@ -96,9 +160,27 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                         alignSelf: 'flex-start',
                     }}
                 />
-            </View>
-
-            <View
+            </View> */}
+            <ProgressBar
+                bg="#afa"
+                fg="#0f0"
+                current={(lastCompleted ?? -1) + 1}
+                total={totalBlobs}
+            />
+            <View style={{ height: 8 }} />
+            <ProgressBar
+                bg="#aaf"
+                fg="#00f"
+                current={progress?.end ?? 0}
+                total={
+                    map.current && progress?.utteranceId
+                        ? map.current.lengths[
+                              map.current.mapping[progress.utteranceId]
+                          ]
+                        : 100
+                }
+            />
+            {/* <View
                 style={{
                     height: 10,
                     width: 200,
@@ -123,7 +205,8 @@ export const BookWhatsit = ({ path }: { path: string }) => {
                         alignSelf: 'flex-start',
                     }}
                 />
-            </View>
+            </View> */}
+            <View style={{ height: 8 }} />
             {lastCompleted != null ? (
                 <Text>
                     {(((lastCompleted + 1) / totalBlobs) * 100).toFixed(2) +
@@ -135,7 +218,7 @@ export const BookWhatsit = ({ path }: { path: string }) => {
             <View style={{ height: 16 }} />
             <Button
                 onPress={() => {
-                    AsyncStorage.removeItem('last-completed');
+                    AsyncStorage.removeItem(statusKey(path, target));
                     setLastCompleted(-1);
                     if (started) {
                         TTs.stop();
@@ -149,6 +232,41 @@ export const BookWhatsit = ({ path }: { path: string }) => {
         </View>
     );
 };
+
+export const ProgressBar = ({
+    total,
+    current,
+    fg,
+    bg,
+    width = 200,
+}: {
+    width?: number;
+    total: number;
+    current: number;
+    fg: string;
+    bg: string;
+}) => {
+    return (
+        <View
+            style={{
+                height: 10,
+                width,
+                alignSelf: 'stretch',
+                backgroundColor: bg,
+            }}
+        >
+            <View
+                style={{
+                    height: 10,
+                    width: width * (current / total),
+                    backgroundColor: fg,
+                    alignSelf: 'flex-start',
+                }}
+            />
+        </View>
+    );
+};
+
 type ChapterData = {
     blobs: number;
     idx: number;
@@ -215,6 +333,7 @@ export const ShowChapters = ({
         </View>
     );
 };
+
 const loadBook = async (path: string): Promise<Array<Chapter>> => {
     const blob = await readFile(path, 'base64');
     const file = await JSZip.loadAsync(blob, { base64: true });
@@ -235,6 +354,7 @@ const loadBook = async (path: string): Promise<Array<Chapter>> => {
 };
 
 async function runTranscription(
+    target: string,
     chapters: Array<Chapter>,
     map: React.MutableRefObject<ChapterData>,
     skipTo: number,
@@ -261,7 +381,8 @@ async function runTranscription(
     //         0,
     //     ),
     // );
-    const base = ExternalStorageDirectoryPath + '/Audiobooks/WIP';
+    // const base = ExternalStorageDirectoryPath + '/Audiobooks/' + target;
+    const base = target;
     if (!(await exists(base))) {
         await mkdir(base);
     }

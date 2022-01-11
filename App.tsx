@@ -6,6 +6,7 @@ import {
     View,
     PermissionsAndroid,
     Linking,
+    ScrollView,
 } from 'react-native';
 import TTs from 'react-native-tts';
 import {
@@ -14,10 +15,9 @@ import {
     ExternalStorageDirectoryPath,
     readdir,
 } from 'react-native-fs';
-import { FileBrowser } from './FileBrowser';
 import DocumentPicker from 'react-native-document-picker';
 import AsyncStorage from '@react-native-community/async-storage';
-import { BookWhatsit } from './BookWhatsit';
+import { basename, BookWhatsit } from './BookWhatsit';
 
 export const Sample = () => {
     return (
@@ -97,42 +97,29 @@ const permissionsConfig = {
     buttonPositive: 'OK',
 };
 
-export const useTTSProgress = (onFinish) => {
-    const [progress, setProgress] = React.useState(null);
-    const [error, setError] = React.useState(null);
-    React.useEffect(() => {
-        const fn = (evt) => {
-            onFinish(evt);
-            // setTick((tick) => tick + 1);
-            setProgress(null);
-        };
-        TTs.addEventListener('tts-finish', fn);
-        const cancel = (err) => setError(err || 'Some cancel');
-        TTs.addEventListener('tts-cancel', cancel);
-        const error = (err) => setError(err || 'Some error');
-        TTs.addEventListener('tts-error', error);
-        const f2 = (evt) =>
-            setProgress((prev) =>
-                prev ? { ...evt, tick: prev.tick + 1 } : { ...evt, tick: 0 },
-            );
-        TTs.addEventListener('tts-progress', f2);
-        return () => {
-            TTs.removeEventListener('tts-finish', fn);
-            TTs.removeEventListener('tts-error', error);
-            TTs.removeEventListener('tts-cancel', cancel);
-            TTs.removeEventListener('tts-progress', f2);
-        };
-    }, []);
-
-    return [progress, error];
-};
-
 export type Screen =
     | {
           id: 'home';
       }
-    | { id: 'pick' }
     | { id: 'book'; path: string };
+
+export const usePersistedState = <T,>(
+    initial: T,
+    key: string,
+): [T, (v: T) => void] => {
+    const [v, setV] = React.useState(initial);
+    React.useEffect(() => {
+        AsyncStorage.getItem(key).then((v) => {
+            if (v) {
+                setV(JSON.parse(v));
+            }
+        });
+    }, []);
+    React.useEffect(() => {
+        AsyncStorage.setItem(key, JSON.stringify(v));
+    }, [v]);
+    return [v, setV];
+};
 
 export default function App() {
     React.useEffect(() => {
@@ -140,53 +127,43 @@ export default function App() {
             PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
             permissionsConfig,
         );
-        // PermissionsAndroid.request(
-        //     PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-        //     permissionsConfig,
-        // );
     }, []);
 
-    const [screen, setScreen] = React.useState({ id: 'home' } as Screen);
+    const [target, setTarget] = usePersistedState(null, 'target-dir');
+    const [file, setFile] = usePersistedState(null, 'current-file');
+
+    const [recents, setRecents] = usePersistedState([], 'recent-files');
 
     React.useEffect(() => {
-        AsyncStorage.getItem('last-file').then((v) => {
-            if (v) {
-                setScreen({ id: 'book', path: v });
-            }
-        });
-    }, []);
-    React.useEffect(() => {
-        if (screen.id === 'book') {
-            AsyncStorage.setItem('last-file', screen.path);
+        if (file && !recents.includes(file)) {
+            setRecents(recents.concat([file]));
         }
-    }, [screen]);
+    }, [file]);
 
-    if (screen.id === 'pick') {
+    if (target && file) {
         return (
             <View style={styles.container}>
-                <FileBrowser
-                    onSelect={(item) => {
-                        setScreen({ id: 'book', path: item.path });
+                <BookWhatsit
+                    path={file}
+                    target={target}
+                    onBack={() => {
+                        setFile(null);
                     }}
-                    filter={
-                        (item) => true
-                        // item.isDirectory() || item.path.toLowerCase().includes('subtle')
-                    }
                 />
             </View>
         );
     }
 
-    if (screen.id === 'book') {
+    if (!target) {
         return (
             <View style={styles.container}>
-                <BookWhatsit path={screen.path} />
-                {/* <Text>Here we are folks!</Text>
-                <Text>{screen.path}</Text> */}
+                <Text>Pick target directory to store audiobooks:</Text>
                 <Button
-                    title="Back"
+                    title="Pick a target directory"
                     onPress={() => {
-                        setScreen({ id: 'home' });
+                        DocumentPicker.pickDirectory({}).then((path) => {
+                            setTarget(path.uri);
+                        });
                     }}
                 />
             </View>
@@ -195,23 +172,41 @@ export default function App() {
 
     return (
         <View style={styles.container}>
-            <Text>Pick an .epub file to get started!</Text>
+            <Text>Target directory {target}</Text>
             <Button
-                title="Pick a new file"
+                title="Pick a different target directory"
+                onPress={() => {
+                    DocumentPicker.pickDirectory({}).then((path) => {
+                        setTarget(path.uri);
+                    });
+                }}
+            />
+            <View style={{ height: 16 }} />
+            <Text>Pick an .epub file to record!</Text>
+            <Button
+                title="Pick a .epub file"
                 onPress={() => {
                     DocumentPicker.pickSingle({
                         type: ['application/epub+zip'],
                     }).then((path) => {
-                        setScreen({ id: 'book', path: path.uri });
+                        setFile(path.uri);
                     });
                 }}
             />
-            <Button
-                title="Pick a file"
-                onPress={() => {
-                    setScreen({ id: 'pick' });
-                }}
-            />
+            <View style={{ height: 16 }} />
+            <Text style={{ fontWeight: 'bold' }}>Recent files</Text>
+            <ScrollView style={{ flex: 1 }}>
+                {!recents.length ? <Text>No recent files...</Text> : null}
+                {recents.map((name, i) => (
+                    <Button
+                        title={basename(name)}
+                        key={i}
+                        onPress={() => {
+                            setFile(name);
+                        }}
+                    />
+                ))}
+            </ScrollView>
         </View>
     );
 }

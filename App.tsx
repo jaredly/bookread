@@ -129,12 +129,14 @@ export default function App() {
 
 export const getWritePermission = async () => {
     const perm = await PermissionsAndroid.check(
-        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+        'android.permission.MANAGE_EXTERNAL_STORAGE',
+        // PermissionsAndroid.PERMISSIONS.MANAGE_EXTERNAL_STORAGE,
     );
     if (!perm) {
         console.warn('not granted');
         const res = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+            'android.permission.MANAGE_EXTERNAL_STORAGE',
+            // PermissionsAndroid.PERMISSIONS.MANAGE_EXTERNAL_STORAGE,
         );
         if (res !== 'granted') {
             console.warn('nope', res);

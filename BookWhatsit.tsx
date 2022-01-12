@@ -109,83 +109,71 @@ export const BookWhatsit = ({
     const totalBlobs = chapters.reduce((t, c) => t + c.blobs.length, 0);
 
     return (
-        <View style={{ alignSelf: 'center' }}>
-            <Button
-                title="Back"
-                onPress={() => {
-                    onBack();
+        <View style={{ alignSelf: 'center', padding: 16 }}>
+            <View
+                style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
                 }}
-            />
+            >
+                <Button
+                    title="Back"
+                    onPress={() => {
+                        onBack();
+                    }}
+                />
+                <View style={{ flexBasis: 8 }} />
+                {started ? (
+                    <Button
+                        title="Stop"
+                        onPress={() => {
+                            TTs.stop();
+                            setStarted(false);
+                        }}
+                    />
+                ) : (
+                    <Button
+                        title="Start"
+                        onPress={() => {
+                            setStarted(true);
+                            // TODO: use 'target' here actually
+                            const base =
+                                ExternalStorageDirectoryPath +
+                                '/Audiobooks/' +
+                                basename(path).replace(/\.epub$/, '');
+                            runTranscription(
+                                base,
+                                chapters!,
+                                map,
+                                lastCompleted + 1,
+                            ).catch((err) => {
+                                console.error(err);
+                            });
+                        }}
+                    />
+                )}
+                <View style={{ flexBasis: 8 }} />
+                {started ? (
+                    keepAwake ? (
+                        <>
+                            <Button
+                                title="Turn off keep awake"
+                                onPress={() => setKeepAwake(false)}
+                                color={'red'}
+                            />
+                            <KeepAwake />
+                        </>
+                    ) : (
+                        <Button
+                            title="Keep awake"
+                            onPress={() => setKeepAwake(true)}
+                        />
+                    )
+                ) : null}
+            </View>
             <View style={{ height: 8 }} />
             <Text>File: {basename(decodeURIComponent(path))}</Text>
             <View style={{ height: 8 }} />
-            {started ? (
-                <Button
-                    title="Stop"
-                    onPress={() => {
-                        TTs.stop();
-                        setStarted(false);
-                    }}
-                />
-            ) : (
-                <Button
-                    title="Start"
-                    onPress={() => {
-                        setStarted(true);
-                        // TODO: use 'target' here actually
-                        const base =
-                            ExternalStorageDirectoryPath +
-                            '/Audiobooks/' +
-                            basename(path).replace(/\.epub$/, '');
-                        runTranscription(
-                            base,
-                            chapters!,
-                            map,
-                            lastCompleted + 1,
-                        ).catch((err) => {
-                            console.error(err);
-                        });
-                    }}
-                />
-            )}
-            {started ? (
-                keepAwake ? (
-                    <>
-                        <Button
-                            title="Turn off keep awake"
-                            onPress={() => setKeepAwake(false)}
-                            color={'red'}
-                        />
-                        <KeepAwake />
-                    </>
-                ) : (
-                    <Button
-                        title="Keep awake"
-                        onPress={() => setKeepAwake(true)}
-                    />
-                )
-            ) : null}
-            <View style={{ height: 8 }} />
-            {/* <View
-                style={{
-                    height: 10,
-                    width: 200,
-                    alignSelf: 'stretch',
-                    backgroundColor: '#afa',
-                }}
-            >
-                <View
-                    style={{
-                        height: 10,
-                        width:
-                            lastCompleted != null
-                                ? 200 * ((lastCompleted + 1) / totalBlobs)
-                                : 0,
-                        backgroundColor: '#0f0',
-                        alignSelf: 'flex-start',
-                    }}
-                />
-            </View> */}
             <ProgressBar
                 bg="#afa"
                 fg="#0f0"
@@ -205,32 +193,6 @@ export const BookWhatsit = ({
                         : 100
                 }
             />
-            {/* <View
-                style={{
-                    height: 10,
-                    width: 200,
-                    alignSelf: 'stretch',
-                    backgroundColor: '#aaf',
-                }}
-            >
-                <View
-                    style={{
-                        height: 10,
-                        width:
-                            map.current && progress?.utteranceId
-                                ? 200 *
-                                  (progress.end /
-                                      map.current.lengths[
-                                          map.current.mapping[
-                                              progress.utteranceId
-                                          ]
-                                      ])
-                                : 0,
-                        backgroundColor: '#00f',
-                        alignSelf: 'flex-start',
-                    }}
-                />
-            </View> */}
             <View style={{ height: 8 }} />
             {lastCompleted != null ? (
                 <Text>

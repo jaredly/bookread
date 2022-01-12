@@ -4,6 +4,7 @@ import TTs from 'react-native-tts';
 import {
     exists,
     ExternalStorageDirectoryPath,
+    DocumentDirectoryPath,
     mkdir,
     writeFile,
 } from 'react-native-fs';
@@ -77,6 +78,10 @@ export const BookWhatsit = ({
         });
     }, []);
 
+    const [consolidateStatus, setConsolidate] = React.useState(
+        null as null | number,
+    );
+
     if (!chapters) {
         return (
             <View>
@@ -95,48 +100,78 @@ export const BookWhatsit = ({
 
     return (
         <View style={{ alignSelf: 'center', padding: 16 }}>
-            <View
-                style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                }}
-            >
-                {lastCompleted >= totalBlobs - 1 ? (
+            {lastCompleted >= totalBlobs - 1 ? (
+                consolidateStatus != null ? (
+                    <Text>
+                        {consolidateStatus} of {chapters.length}
+                    </Text>
+                ) : (
                     <Button
                         title="Consolidate into chapters!"
                         onPress={async () => {
-                            const text = chapters[0].blobs
-                                .map((_, i) => `${i}.wav`)
-                                .join('\n');
-                            await getWritePermission();
-                            if (!(await exists(base))) {
-                                await mkdir(base);
-                                console.warn('base doesnt exist');
+                            let at = 0;
+                            for (let ch = 0; ch < chapters.length; ch++) {
+                                setConsolidate(ch);
+                                const text = chapters[ch].blobs
+                                    .map(
+                                        (_, i) =>
+                                            `file '${base}/${at + i}.wav'\n`,
+                                    )
+                                    .join('');
+
+                                at += chapters[ch].blobs.length;
+                                // await getWritePermission();
+                                if (!(await exists(base))) {
+                                    await mkdir(base);
+                                    console.warn('base doesnt exist');
+                                }
+                                console.log(text);
+                                // const file = base + '/ch1.txt';
+                                const file =
+                                    DocumentDirectoryPath + `/ch${ch}.txt`;
+                                // const file =
+                                //     ExternalStorageDirectoryPath +
+                                //     '/Audiobooks' +
+                                //     '/ch1.txt';
+                                try {
+                                    await writeFile(file, text);
+                                } catch (err) {
+                                    console.log('failed to write file');
+                                    console.error(err);
+                                    return;
+                                }
+                                try {
+                                    await FFmpegKit.execute(
+                                        `-y -f concat -safe 0 -i ${file} ${
+                                            base +
+                                            `/ch${ch
+                                                .toString()
+                                                .padStart(2, '0')}_${chapters[
+                                                ch
+                                            ].label.replace(
+                                                /[\/\s]/g,
+                                                '-',
+                                            )}.mp3`
+                                        }`,
+                                    );
+                                    console.log('Finished!');
+                                } catch (err) {
+                                    console.log('failed to ffmpeg');
+                                    console.error(err);
+                                }
                             }
-                            // const file = base + '/ch1.txt';
-                            const file =
-                                ExternalStorageDirectoryPath +
-                                '/Audiobooks' +
-                                '/ch1.txt';
-                            try {
-                                await writeFile(file, text);
-                            } catch (err) {
-                                console.log('failed to write file');
-                                console.error(err);
-                                return;
-                            }
-                            try {
-                                await FFmpegKit.execute(
-                                    `-f concat -safe 0 -i ${file} -c copy ${
-                                        base + '/ch1.mp3'
-                                    }`,
-                                );
-                            } catch (err) {
-                                console.error(err);
-                            }
+                            setConsolidate(chapters.length);
                         }}
                     />
-                ) : null}
+                )
+            ) : null}
+            <View style={{ flexBasis: 8 }} />
+            <View
+                style={{
+                    flexDirection: 'row',
+                    justifyContent: 'flex-start',
+                }}
+            >
                 <Button
                     title="Back"
                     onPress={() => {

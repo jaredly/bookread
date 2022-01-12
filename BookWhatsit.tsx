@@ -57,7 +57,7 @@ export const BookWhatsit = ({
 }: {
     path: string;
     target: string;
-    onBack: () => void;
+    onBack: (err?: Error) => void;
 }) => {
     const map = React.useRef(null as null | ChapterData);
     const [lastCompleted, setLastCompleted] = React.useState(
@@ -83,7 +83,7 @@ export const BookWhatsit = ({
                 const chapters = await loadBook(path);
                 setChapters(chapters);
             } catch (err) {
-                onBack();
+                onBack(err);
             }
         })().catch((err) => {
             console.error(err);
@@ -174,9 +174,9 @@ export const BookWhatsit = ({
                 current={progress?.end ?? 0}
                 total={
                     map.current && progress?.utteranceId
-                        ? map.current.lengths[
+                        ? map.current.full[
                               map.current.mapping[progress.utteranceId]
-                          ]
+                          ].length
                         : 100
                 }
             />
@@ -214,7 +214,21 @@ export const BookWhatsit = ({
                     {lastCompleted + 1} of {totalBlobs}
                 </Text>
             ) : null}
-            {error ? <Text>Error {JSON.stringify(error)}</Text> : null}
+            {error ? (
+                <Text>
+                    Error {JSON.stringify(error)}
+                    {error.utteranceId
+                        ? JSON.stringify(
+                              map.current.full[
+                                  map.current.mapping[error.utteranceId]
+                              ],
+                          ) +
+                          ` ok ${error.utteranceId} ${
+                              map.current.mapping[error.utteranceId]
+                          }`
+                        : 'No utteranceid'}
+                </Text>
+            ) : null}
             <View style={{ height: 16 }} />
             <Button
                 onPress={() => {
@@ -279,8 +293,8 @@ type ChapterData = {
     mapping: {
         [key: string]: number;
     };
-    lengths: {
-        [key: number]: number;
+    full: {
+        [key: number]: string;
     };
 };
 
@@ -391,7 +405,7 @@ async function runTranscription(
         blobs: chapters.reduce((t, c) => t + c.blobs.length, 0),
         idx: 0,
         mapping: {},
-        lengths: {},
+        full: {},
         chapters,
     });
 
@@ -409,14 +423,30 @@ async function runTranscription(
                 continue;
             }
             const dest = base + `/${id}.wav`;
-            data.lengths[id] = blob.length;
-            const uid = await TTs.speakToFile(blob, dest);
+            data.full[id] = blob;
+            const uid = await TTs.speakToFile(blob, dest).catch((err) => {
+                if (err.utteranceId) {
+                    data.mapping[err.utteranceId] = id;
+                }
+                console.log(`ok failed here`, blob, dest, err, blob.length);
+                throw err;
+            });
             data.mapping[uid] = id;
         }
     }
 }
 
-async function populateChapter(file: JSZip, chapter: any) {
+async function populateChapter(
+    file: JSZip,
+    chapter: { src: string; blobs: Array<string> },
+) {
+    if (!file.files[chapter.src]) {
+        throw new Error(
+            `Chapter not in files list ${chapter.src} - ${Object.keys(
+                file.files,
+            )}`,
+        );
+    }
     const contents = await file.files[chapter.src].async('string');
     let soup = new jssoup(contents);
     const body = soup.find('body');
@@ -443,20 +473,51 @@ async function populateChapter(file: JSZip, chapter: any) {
         }
     });
 
-    chapter.blobs = soup.contents
-        .filter((toplevel) => toplevel.text.trim().length)
-        .map((toplevel, i) => {
-            return toplevel.name === 'table'
-                ? `Table with ${toplevel.contents.length} rows and ${toplevel.contents[0].contents.length} columns.`
-                : toplevel.text;
-        });
+    chapter.blobs = (
+        soup.contents
+            .filter((toplevel) => toplevel.text.trim().length)
+            .map((toplevel, i) => {
+                return toplevel.name === 'table'
+                    ? `Table with ${toplevel.contents.length} rows and ${toplevel.contents[0].contents.length} columns.`
+                    : toplevel.text;
+            }) as Array<string>
+    )
+        .map(maybeSplit)
+        .flat();
 }
+
+export const maybeSplit = (text: string): Array<string> => {
+    if (text.length < 3999) {
+        return [text];
+    }
+    const sentences = text.split(/\. (?=[A-Z])/);
+    if (sentences.length < 2) {
+        console.log(text);
+        throw new Error(`What cant sentence split folks ${text}`);
+    }
+    let buffer = sentences.shift();
+    const res = [];
+    while (sentences.length) {
+        const next = sentences.shift() + '. ';
+        if (buffer.length + next.length >= 4000) {
+            res.push(buffer);
+            buffer = next;
+        } else {
+            buffer += next;
+        }
+    }
+    res.push(buffer);
+
+    return res;
+};
+
 type Chapter = {
     src: string;
     label: string;
     playOrder: number;
     class: string;
     blobs: string[];
+    hash: string;
 };
 
 async function getChapters(
@@ -490,7 +551,8 @@ async function getChapters(
             const src = point.find('content').attrs['src'];
             const label = point.find('navLabel').text;
             return {
-                src,
+                src: src.split('#')[0].split('?')[0],
+                hash: src.split('#').slice(1).join('#'),
                 label,
                 playOrder: +point.attrs['playOrder'],
                 class: point.attrs['class'],

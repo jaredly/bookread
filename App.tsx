@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     Button,
     StyleSheet,
@@ -131,6 +131,7 @@ export default function App() {
 
     const [target, setTarget] = usePersistedState(null, 'target-dir');
     const [file, setFile] = usePersistedState(null, 'current-file');
+    const [error, setError] = useState(null);
 
     const [recents, setRecents] = usePersistedState([], 'recent-files');
 
@@ -146,8 +147,11 @@ export default function App() {
                 <BookWhatsit
                     path={file}
                     target={target}
-                    onBack={() => {
+                    onBack={(err) => {
                         setFile(null);
+                        if (err) {
+                            setError(err);
+                        }
                     }}
                 />
             </View>
@@ -190,19 +194,25 @@ export default function App() {
                         type: ['application/epub+zip'],
                     }).then((path) => {
                         setFile(path.uri);
+                        setError(null);
                     });
                 }}
             />
+            {error ? <Text>Failed to load epub: {error.message}</Text> : null}
             <View style={{ height: 16 }} />
             <Text style={{ fontWeight: 'bold' }}>Recent files</Text>
             <ScrollView style={{ flex: 1 }}>
                 {!recents.length ? <Text>No recent files...</Text> : null}
                 {recents.map((name, i) => (
                     <Button
-                        title={basename(name)}
+                        title={basename(decodeURIComponent(name))}
                         key={i}
                         onPress={() => {
+                            // DocumentPicker.pickSingle({
+                            //     uri: name,
+                            // })
                             setFile(name);
+                            setError(null);
                         }}
                     />
                 ))}

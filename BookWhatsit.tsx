@@ -10,6 +10,7 @@ import {
 import JSZip from 'jszip';
 import jssoup from 'jssoup';
 import AsyncStorage from '@react-native-community/async-storage';
+import { useKeepAwake } from 'expo-keep-awake';
 
 export const basename = (path: string) => {
     const parts = path.split('/');
@@ -19,6 +20,12 @@ export const dirname = (path: string) => path.split('/').slice(0, -1).join('/');
 
 const statusKey = (path: string, target: string) =>
     `last-completed:${path}:${target}`;
+
+export const KeepAwake = () => {
+    useKeepAwake();
+
+    return null;
+};
 
 export const useTTSProgress = (onFinish) => {
     const [progress, setProgress] = React.useState(null);
@@ -59,6 +66,7 @@ export const BookWhatsit = ({
     target: string;
     onBack: (err?: Error) => void;
 }) => {
+    const [keepAwake, setKeepAwake] = React.useState(false);
     const map = React.useRef(null as null | ChapterData);
     const [lastCompleted, setLastCompleted] = React.useState(
         null as null | number,
@@ -140,6 +148,23 @@ export const BookWhatsit = ({
                     }}
                 />
             )}
+            {started ? (
+                keepAwake ? (
+                    <>
+                        <Button
+                            title="Turn off keep awake"
+                            onPress={() => setKeepAwake(false)}
+                            color={'red'}
+                        />
+                        <KeepAwake />
+                    </>
+                ) : (
+                    <Button
+                        title="Keep awake"
+                        onPress={() => setKeepAwake(true)}
+                    />
+                )
+            ) : null}
             <View style={{ height: 8 }} />
             {/* <View
                 style={{
